@@ -2,11 +2,13 @@ import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import { valkey } from './lib/valkey.js'
 import { cacheRoutes } from './routes/cache.js'
+import { rateLimitRoutes } from './routes/rate-limit.js'
 
 const app = new Hono()
 
 await valkey.connect()
 app.route('/cache-demo', cacheRoutes(valkey))
+app.route('/limited', rateLimitRoutes(valkey))
 
 app.get('/', (c) => {
   return c.text('Hello Hono!')

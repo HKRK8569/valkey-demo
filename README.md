@@ -80,3 +80,41 @@ sequenceDiagram
         API-->>User: 200 OK（source: origin、elapsedMs）
     end
 ```
+
+### 2. レートリミット
+
+`GET /limited` は最初のアクセスから60秒間で100回まで許可します。
+利用者認証は未実装で、全アクセスが固定キー `app:rate:demo` を共有するデモです。
+利用者別にする場合は、検証済みの利用者 ID からキーを作成します。
+
+Lua スクリプトでカウント加算と初回の期限設定を原子的に実行します。
+制限後のアクセスで期限は延長しません。Valkey 処理失敗時は `503` を返します。
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as 利用者
+    participant Limit as Hono レート制限ミドルウェア
+    participant Valkey as Valkey
+    participant API as Hono ルート
+
+    Note over Limit,API: 同じ Hono サーバー内の処理
+    Note over Limit,Valkey: ACL の app ユーザーで接続認証済み
+    User->>Limit: GET /limited
+    Limit->>Valkey: EVAL（キー app:rate:demo）
+    Note over Valkey: 原子的に INCR、初回のみ EXPIRE 60、TTL 取得
+    Valkey-->>Limit: リクエスト数と残り秒数
+    alt 100回以下
+        Limit->>API: next()
+        API-->>User: 200 OK + 残り回数ヘッダー
+    else 101回以上
+        Limit-->>User: 429 Too Many Requests + Retry-After
+    end
+    Note over Limit,Valkey: 期限切れ後、次のアクセスから新しい60秒間を開始
+```
+
+```sh
+for i in $(seq 1 101); do
+  curl -s -o /dev/null -w '%{http_code}\n' http://localhost:3000/limited
+done
+```
