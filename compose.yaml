@@ -1,0 +1,18 @@
+services:
+  valkey:
+    image: valkey/valkey:9.1-alpine
+    command: ["valkey-server", "--appendonly", "yes", "--aclfile", "/etc/valkey/users.acl"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - valkey-data:/data
+      - ./users.acl:/etc/valkey/users.acl:ro
+    healthcheck:
+      test: ["CMD-SHELL", "VALKEYCLI_AUTH=local-health-password valkey-cli --user health ping | grep -qx PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+volumes:
+  valkey-data:

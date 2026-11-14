@@ -1,0 +1,4 @@
+user default off
+user admin on >local-admin-password ~* &* +@all
+user app on >local-app-password ~app:* +ping +get +set +del +expire +ttl +incr +hset +hgetall +rpush +lrange +lpop
+user health on >local-health-password +ping
