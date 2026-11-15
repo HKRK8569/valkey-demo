@@ -2,13 +2,17 @@ import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import { valkey } from './lib/valkey.js'
 import { cacheRoutes } from './routes/cache.js'
+import { pubsubEventRoutes, pubsubRoutes } from './routes/pubsub.js'
 import { rateLimitRoutes } from './routes/rate-limit.js'
 
 const app = new Hono()
+const shutdown = new AbortController()
 
 await valkey.connect()
 app.route('/cache-demo', cacheRoutes(valkey))
 app.route('/limited', rateLimitRoutes(valkey))
+app.route('/pubsub', pubsubRoutes(valkey))
+app.route('/pubsub', pubsubEventRoutes(() => valkey.duplicate(), shutdown.signal))
 
 app.get('/', (c) => {
   return c.text('Hello Hono!')
@@ -23,6 +27,7 @@ const server = serve({
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.once(signal, () => {
+    shutdown.abort()
     server.close(() => {
       if (valkey.isOpen) valkey.destroy()
     })

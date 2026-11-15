@@ -118,3 +118,64 @@ for i in $(seq 1 101); do
   curl -s -o /dev/null -w '%{http_code}\n' http://localhost:3000/limited
 done
 ```
+
+### 3. Pub/Sub
+
+`GET /pubsub/events` は Valkey の通知を SSE で配信します。
+HTTP 接続ごとに専用の Valkey 購読接続を作り、切断時に解放します。
+接続中は15秒ごとにコメントを送って接続を維持します。
+配信待ちが詰まった受信側や Valkey 接続エラー時は SSE を閉じます。
+購読開始に失敗した場合は `503` を返します。
+
+受信は下記のどちらか
+
+```sh
+curl -N http://localhost:3000/pubsub/events
+```
+
+```sh
+docker compose exec valkey valkey-cli --user app --askpass SUBSCRIBE app:events:demo
+```
+
+送信
+
+```sh
+curl -X POST http://localhost:3000/pubsub/publish \
+  -H 'Content-Type: application/json' \
+  -d '{"message":"こんにちは"}'
+# {"channel":"app:events:demo","subscribers":1}
+```
+
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as 利用者
+    participant API as Hono 発行 API
+    participant Valkey as Valkey
+    participant SubA as 購読クライアント A（専用接続）
+    participant SubB as 購読クライアント B（専用接続）
+
+    SubA->>Valkey: AUTH app パスワード
+    Valkey-->>SubA: OK
+    SubA->>Valkey: SUBSCRIBE app:events:demo
+    Valkey-->>SubA: 購読開始の確認
+    SubB->>Valkey: AUTH app パスワード
+    Valkey-->>SubB: OK
+    SubB->>Valkey: SUBSCRIBE app:events:demo
+    Valkey-->>SubB: 購読開始の確認
+
+    Note over API,Valkey: 発行用接続も接続時に ACL の app ユーザーで認証
+    User->>API: POST /pubsub/publish（メッセージ）
+    API->>API: メッセージの形式・サイズを検証
+    API->>Valkey: PUBLISH app:events:demo メッセージ
+    Valkey-->>SubA: メッセージを配信
+    Valkey-->>SubB: 同じメッセージを配信
+    Valkey-->>API: 受信する購読クライアント数（2）
+    API-->>User: 200 OK（購読クライアント数）
+    Note over API,SubB: PUBLISH の戻り値は購読側での処理完了を保証しない
+
+    SubA->>Valkey: UNSUBSCRIBE app:events:demo
+    Valkey-->>SubA: 購読解除の確認
+    Note over Valkey,SubA: 解除・切断中のメッセージは再接続しても再配信されない
+```
